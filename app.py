@@ -1,204 +1,459 @@
-import streamlit as st
-import pandas as pd
-import datetime
-import uuid
-import os
-import plotly.express as px
+import React, { useState, useEffect, useMemo } from 'react';
+import { DonationEntry, DonationCategory, Region } from './types';
+import { getDonationInsights } from './services/geminiService';
+import ReceiptModal from './components/ReceiptModal';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 
-# --- APP CONFIGURATION ---
-st.set_page_config(page_title="Community Donation Hub", layout="wide", initial_sidebar_state="expanded")
+const App: React.FC = () => {
+  const [entries, setEntries] = useState<DonationEntry[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    donorName: '',
+    amount: '',
+    category: DonationCategory.ZAKAT,
+    region: Region.AREA_5_NO,
+    notes: ''
+  });
+  const [aiInsight, setAiInsight] = useState<string>('Analyzing donation data...');
+  const [loadingInsight, setLoadingInsight] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState<DonationEntry | null>(null);
 
-# Custom CSS for Aesthetics and Urdu Support
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap');
-    
-    .main { background-color: #f1f5f9; }
-    .urdu-text { font-family: 'Noto Sans Arabic', sans-serif; direction: rtl; text-align: right; }
-    .stButton>button { width: 100%; border-radius: 12px; height: 3em; font-weight: bold; }
-    .receipt-card {
-        background: white; padding: 40px; border-radius: 20px;
-        border: 1px solid #eee; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-        font-family: sans-serif;
+  // Load from LocalStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('community_donations');
+    if (saved) {
+      setEntries(JSON.parse(saved));
     }
-    @media print {
-        .no-print { display: none !important; }
-        .receipt-card { box-shadow: none; border: 1px solid #000; }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('community_donations', JSON.stringify(entries));
+    if (entries.length > 0) {
+      fetchInsights();
     }
-    </style>
-""", unsafe_allow_html=True)
+  }, [entries]);
 
-# --- DATA PERSISTENCE ---
-DB_FILE = "donations.csv"
+  const fetchInsights = async () => {
+    setLoadingInsight(true);
+    const insight = await getDonationInsights(entries);
+    setAiInsight(insight);
+    setLoadingInsight(false);
+  };
 
-def load_data():
-    if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
-    return pd.DataFrame(columns=['id', 'receipt_no', 'donor_name', 'amount', 'category', 'region', 'timestamp'])
+  const getRegionCode = (region: Region) => {
+    switch(region) {
+      case Region.AREA_5_NO: return '5N';
+      case Region.J_1: return 'J1';
+      case Region.J_AREA: return 'JA';
+      case Region.AREA_4_NO: return '4N';
+      default: return 'GEN';
+    }
+  };
 
-def save_data(df):
-    df.to_csv(DB_FILE, index=False)
-
-# --- LOGIC FUNCTIONS ---
-def generate_receipt_no(region, count):
-    date_str = datetime.datetime.now().strftime("%Y%m%d")
-    region_codes = {"5 NO": "5N", "J-1": "J1", "J-AREA": "JA", "4 NO": "4N"}
-    r_code = region_codes.get(region, "GEN")
-    seq = str(count + 1).zfill(7)
-    return f"{date_str}-{r_code}-{seq}"
-
-# --- APP STATE ---
-if 'data' not in st.session_state:
-    st.session_state.data = load_data()
-
-# --- SIDEBAR: ENTRY FORM ---
-with st.sidebar:
-    st.markdown('<div class="urdu-text" style="font-size: 24px; font-weight: bold; color: #059669;">ڈونیشن ہب</div>', unsafe_allow_html=True)
-    st.markdown("---")
+  const generateReceiptNumber = (region: Region) => {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const regionCode = getRegionCode(region);
     
-    st.markdown('<p class="urdu-text">نئی انٹری درج کریں</p>', unsafe_allow_html=True)
+    const lastSeq = parseInt(localStorage.getItem('receipt_seq') || '0');
+    const nextSeq = lastSeq + 1;
+    localStorage.setItem('receipt_seq', nextSeq.toString());
     
-    with st.form("donation_form", clear_on_submit=True):
-        donor_name = st.text_input("Donor Name / نام")
-        amount = st.number_input("Amount / رقم", min_value=0, step=100)
-        category = st.selectbox("Category / مقصد", ["Zakat", "Fitra", "Atiyah", "Monthly Chanda"])
-        region = st.selectbox("Region / علاقہ", ["5 NO", "J-1", "J-AREA", "4 NO"])
-        
-        submitted = st.form_submit_button("Save Entry (محفوظ کریں)")
-        
-        if submitted:
-            if donor_name and amount > 0:
-                new_id = str(uuid.uuid4())
-                r_no = generate_receipt_no(region, len(st.session_state.data))
-                new_entry = {
-                    'id': new_id,
-                    'receipt_no': r_no,
-                    'donor_name': donor_name,
-                    'amount': amount,
-                    'category': category,
-                    'region': region,
-                    'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-                st.session_state.data = pd.concat([st.session_state.data, pd.DataFrame([new_entry])], ignore_index=True)
-                save_data(st.session_state.data)
-                st.success("Data Saved Successfully!")
-            else:
-                st.error("Please fill all fields.")
+    const sequence = String(nextSeq).padStart(7, '0');
+    return `${year}${month}${day}-${regionCode}-${sequence}`;
+  };
 
-# --- MAIN DASHBOARD ---
-st.title("Community Donation Dashboard")
-st.markdown("---")
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.donorName || !formData.amount) return;
 
-# Metrics Row
-col1, col2, col3 = st.columns(3)
-total_amt = st.session_state.data['amount'].sum()
-total_rec = len(st.session_state.data)
-zakat_amt = st.session_state.data[st.session_state.data['category'] == 'Zakat']['amount'].sum()
+    if (editingId) {
+      const updatedEntries = entries.map(entry => {
+        if (entry.id === editingId) {
+          return {
+            ...entry,
+            donorName: formData.donorName,
+            amount: parseFloat(formData.amount),
+            category: formData.category,
+            region: formData.region,
+            notes: formData.notes
+          };
+        }
+        return entry;
+      });
+      setEntries(updatedEntries);
+      setEditingId(null);
+    } else {
+      const newEntry: DonationEntry = {
+        id: crypto.randomUUID(),
+        receiptNumber: generateReceiptNumber(formData.region),
+        donorName: formData.donorName,
+        amount: parseFloat(formData.amount),
+        category: formData.category,
+        region: formData.region,
+        timestamp: Date.now(),
+        notes: formData.notes
+      };
+      setEntries(prev => [newEntry, ...prev]);
+    }
 
-with col1:
-    st.metric("Total Collection", f"Rs. {total_amt:,}")
-with col2:
-    st.metric("Total Receipts", total_rec)
-with col3:
-    st.metric("Zakat Pool", f"Rs. {zakat_amt:,}")
+    setFormData({
+      donorName: '',
+      amount: '',
+      category: DonationCategory.ZAKAT,
+      region: Region.AREA_5_NO,
+      notes: ''
+    });
+  };
 
-st.markdown("### Financial Analytics")
-chart_col1, chart_col2 = st.columns(2)
+  const handleEdit = (entry: DonationEntry) => {
+    setEditingId(entry.id);
+    setFormData({
+      donorName: entry.donorName,
+      amount: entry.amount.toString(),
+      category: entry.category,
+      region: entry.region,
+      notes: entry.notes || ''
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
-with chart_col1:
-    if not st.session_state.data.empty:
-        fig_cat = px.bar(st.session_state.data.groupby('category')['amount'].sum().reset_index(), 
-                         x='category', y='amount', title="Collection by Category",
-                         color_discrete_sequence=['#059669'])
-        st.plotly_chart(fig_cat, use_container_width=True)
-    else:
-        st.info("No data for charts")
+  const cancelEdit = () => {
+    setEditingId(null);
+    setFormData({
+      donorName: '',
+      amount: '',
+      category: DonationCategory.ZAKAT,
+      region: Region.AREA_5_NO,
+      notes: ''
+    });
+  };
 
-with chart_col2:
-    if not st.session_state.data.empty:
-        reg_summary = st.session_state.data.groupby('region')['amount'].sum().reset_index()
-        fig_reg = px.pie(reg_summary, values='amount', names='region', title="Regional Breakdown",
-                         hole=0.4, color_discrete_sequence=px.colors.qualitative.Safe)
-        st.plotly_chart(fig_reg, use_container_width=True)
-        
-        # Regional Breakdown List
-        for index, row in reg_summary.iterrows():
-            st.markdown(f"**{row['region']}:** Rs. {row['amount']:,}")
+  const stats = useMemo(() => {
+    const total = entries.reduce((sum, e) => sum + e.amount, 0);
+    const byCategory = entries.reduce((acc, e) => {
+      acc[e.category] = (acc[e.category] || 0) + e.amount;
+      return acc;
+    }, {} as Record<string, number>);
+    const byRegion = entries.reduce((acc, e) => {
+      acc[e.region] = (acc[e.region] || 0) + e.amount;
+      return acc;
+    }, {} as Record<string, number>);
 
-# --- TRANSACTION LOG ---
-st.markdown("---")
-st.markdown('<h3 class="urdu-text">ڈونیشن ریکارڈ لاگ</h3>', unsafe_allow_html=True)
+    return { total, byCategory, byRegion };
+  }, [entries]);
 
-if not st.session_state.data.empty:
-    # Reverse the dataframe to show latest entries first
-    display_df = st.session_state.data.iloc[::-1]
-    
-    for _, row in display_df.iterrows():
-        with st.expander(f"📄 {row['receipt_no']} | {row['donor_name']} | Rs. {row['amount']:,}"):
-            c1, c2 = st.columns([3, 1])
-            with c1:
-                st.write(f"**Category:** {row['category']} | **Region:** {row['region']} | **Date:** {row['timestamp']}")
-            with c2:
-                if st.button("View Receipt", key=row['id']):
-                    st.session_state.selected_receipt = row
-                    st.rerun()
+  const chartData = Object.entries(stats.byCategory).map(([name, value]) => ({ name, value }));
+  const regionData = Object.entries(stats.byRegion).map(([name, value]) => ({ name, value }));
+  const COLORS = ['#059669', '#2563eb', '#d97706', '#dc2626'];
 
-# --- RECEIPT MODAL / OVERLAY ---
-if 'selected_receipt' in st.session_state and st.session_state.selected_receipt is not None:
-    receipt = st.session_state.selected_receipt
-    
-    st.markdown("---")
-    st.markdown(f"""
-        <div class="receipt-card" id="printable-receipt">
-            <div style="text-align: center; border-bottom: 2px solid #059669; padding-bottom: 20px; margin-bottom: 20px;">
-                <h1 style="margin:0; color: #065f46;">COMMUNITY DONATION HUB</h1>
-                <p style="margin:0; font-weight: bold; color: #059669; letter-spacing: 2px;">OFFICIAL RECEIPT</p>
-            </div>
-            <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                    <td style="padding: 10px 0; color: #666; font-size: 12px;">RECEIPT NO:</td>
-                    <td style="text-align: right; font-family: monospace; font-weight: bold;">{receipt['receipt_no']}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px 0; color: #666; font-size: 12px;">DATE:</td>
-                    <td style="text-align: right; font-weight: bold;">{receipt['timestamp']}</td>
-                </tr>
-                <tr style="border-top: 1px solid #eee;">
-                    <td style="padding: 15px 0; font-weight: bold;">DONOR NAME:</td>
-                    <td style="text-align: right; font-size: 18px; font-weight: 900;">{receipt['donor_name']}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px 0; font-weight: bold;">PURPOSE:</td>
-                    <td style="text-align: right;"><span style="background: #ecfdf5; color: #065f46; padding: 5px 15px; border-radius: 50px; font-size: 12px; font-weight: bold;">{receipt['category']}</span></td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px 0; font-weight: bold;">REGION:</td>
-                    <td style="text-align: right; font-weight: bold;">{receipt['region']}</td>
-                </tr>
-                <tr style="border-top: 2px dashed #059669;">
-                    <td style="padding: 20px 0; font-size: 20px; font-weight: bold; color: #065f46;">TOTAL AMOUNT:</td>
-                    <td style="text-align: right; font-size: 28px; font-weight: 900; color: #059669;">Rs. {receipt['amount']:,}</td>
-                </tr>
-            </table>
-            <div style="text-align: center; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
-                <p class="urdu-text" style="color: #065f46; font-size: 14px;">اللہ تعالیٰ آپ کا عطیہ قبول فرمائے۔ آمین</p>
-                <p style="font-size: 10px; color: #aaa;">Digital Verification ID: {receipt['id'][:16]}</p>
-            </div>
+  return (
+    <div className="flex flex-col lg:flex-row min-h-screen bg-[#f1f5f9]">
+      {/* Navigation / Sidebar */}
+      <aside className="w-full lg:w-[380px] bg-white border-r border-slate-200 lg:h-screen sticky top-0 z-30 flex flex-col">
+        <div className="p-8 border-b border-slate-100 flex items-center gap-4">
+          <div className="w-12 h-12 bg-emerald-600 rounded-2xl flex items-center justify-center text-white shadow-2xl shadow-emerald-200">
+            <i className="fas fa-hand-holding-heart text-2xl"></i>
+          </div>
+          <div>
+            <h1 className="font-black text-emerald-900 leading-none uppercase tracking-tighter text-xl">Donation Hub</h1>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 block">Financial Registry</span>
+          </div>
         </div>
-    """, unsafe_allow_html=True)
-    
-    # Action Buttons for Receipt
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        st.button("Print (Ctrl+P)", on_click=lambda: None) # Browser print handles this
-    with col_b:
-        whatsapp_text = f"*Donation Receipt*%0A*No:* {receipt['receipt_no']}%0A*Donor:* {receipt['donor_name']}%0A*Amount:* Rs.{receipt['amount']:,}%0A*Category:* {receipt['category']}%0A*Region:* {receipt['region']}"
-        st.markdown(f'<a href="https://wa.me/?text={whatsapp_text}" target="_blank" style="text-decoration:none;"><div style="background:#25D366; color:white; padding:10px; border-radius:12px; text-align:center; font-weight:bold;">Share on WhatsApp</div></a>', unsafe_allow_html=True)
-    with col_c:
-        if st.button("Close Receipt"):
-            st.session_state.selected_receipt = None
-            st.rerun()
 
-# Empty state footer
-if st.session_state.data.empty:
-    st.info("Welcome! Please use the sidebar to log your first donation.")
+        <div className="flex-1 overflow-y-auto p-8 space-y-10">
+          <section>
+            <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6 urdu-text flex items-center gap-2">
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+              {editingId ? 'انٹری میں ترمیم کریں' : 'نئی انٹری درج کریں'}
+            </h2>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex justify-between px-1">
+                  <span>Donor Full Name</span>
+                  <span className="urdu-text text-slate-400">نام</span>
+                </label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Ali Ahmed"
+                  className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition-all text-sm font-bold placeholder:text-slate-300"
+                  value={formData.donorName}
+                  onChange={e => setFormData({...formData, donorName: e.target.value})}
+                />
+              </div>
+              
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex justify-between px-1">
+                  <span>Amount (PKR)</span>
+                  <span className="urdu-text text-slate-400">رقم</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">Rs.</span>
+                  <input 
+                    type="number" 
+                    required
+                    placeholder="5000"
+                    className="w-full pl-14 pr-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition-all text-sm font-black"
+                    value={formData.amount}
+                    onChange={e => setFormData({...formData, amount: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex justify-between px-1">
+                  <span>Category</span>
+                  <span className="urdu-text text-slate-400">مقصد</span>
+                </label>
+                <select 
+                  className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-sm font-bold appearance-none cursor-pointer"
+                  value={formData.category}
+                  onChange={e => setFormData({...formData, category: e.target.value as DonationCategory})}
+                >
+                  {Object.values(DonationCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex justify-between px-1">
+                  <span>Region</span>
+                  <span className="urdu-text text-slate-400">علاقہ</span>
+                </label>
+                <select 
+                  className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-sm font-bold appearance-none cursor-pointer"
+                  value={formData.region}
+                  onChange={e => setFormData({...formData, region: e.target.value as Region})}
+                >
+                  {Object.values(Region).map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+
+              <div className="pt-2">
+                <button 
+                  type="submit"
+                  className={`w-full ${editingId ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white font-black py-5 rounded-[1.5rem] transition-all shadow-xl shadow-emerald-50 flex items-center justify-center gap-3 active:scale-95`}
+                >
+                  <i className={`fas ${editingId ? 'fa-save' : 'fa-check-double'} text-lg`}></i> 
+                  <span className="tracking-widest uppercase text-xs">
+                    {editingId ? 'Update Record' : 'Save Entry (محفوظ کریں)'}
+                  </span>
+                </button>
+                {editingId && (
+                  <button 
+                    type="button"
+                    onClick={cancelEdit}
+                    className="w-full mt-4 bg-slate-100 text-slate-500 hover:bg-slate-200 font-black py-3 rounded-xl transition-all text-[10px] uppercase tracking-widest"
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
+            </form>
+          </section>
+
+          <section className="bg-emerald-50 p-6 rounded-[2rem] border border-emerald-100 relative group overflow-hidden">
+            <div className="absolute right-0 bottom-0 opacity-5 text-7xl translate-y-4 translate-x-4">
+              <i className="fas fa-microchip"></i>
+            </div>
+            <h3 className="text-[10px] font-black text-emerald-800 uppercase tracking-widest flex items-center gap-2 mb-3">
+              <i className="fas fa-sparkles animate-pulse"></i> AI Intelligence Report
+            </h3>
+            <p className="text-[11px] text-emerald-700 leading-relaxed italic urdu-text">
+              {loadingInsight ? 'تجزیہ جاری ہے...' : aiInsight}
+            </p>
+          </section>
+        </div>
+      </aside>
+
+      {/* Main Content Dashboard */}
+      <main className="flex-1 p-6 lg:p-10 space-y-12 max-w-7xl mx-auto overflow-y-auto">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-1">
+            <h1 className="text-4xl font-black text-slate-800 tracking-tighter">Community Dashboard</h1>
+            <p className="text-slate-400 font-semibold tracking-wide uppercase text-[10px]">Real-time Network Statistics</p>
+          </div>
+          <div className="flex items-center gap-3 bg-white px-6 py-3 rounded-2xl border border-slate-200 shadow-sm">
+             <i className="fas fa-clock text-emerald-600"></i>
+             <span className="text-sm font-black text-slate-700">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+          </div>
+        </header>
+
+        {/* Top Metric Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden">
+             <div className="absolute right-0 top-0 w-24 h-24 bg-emerald-50 rounded-bl-[4rem] flex items-center justify-center -translate-y-2 translate-x-2 group-hover:translate-y-0 group-hover:translate-x-0 transition-transform">
+                <i className="fas fa-wallet text-emerald-600 text-2xl"></i>
+             </div>
+             <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Total Collection</p>
+             <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Rs {stats.total.toLocaleString()}</h2>
+          </div>
+          <div className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden">
+             <div className="absolute right-0 top-0 w-24 h-24 bg-blue-50 rounded-bl-[4rem] flex items-center justify-center -translate-y-2 translate-x-2 group-hover:translate-y-0 group-hover:translate-x-0 transition-transform">
+                <i className="fas fa-receipt text-blue-600 text-2xl"></i>
+             </div>
+             <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Verified Receipts</p>
+             <h2 className="text-4xl font-black text-slate-900 tracking-tighter">{entries.length}</h2>
+          </div>
+          <div className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden">
+             <div className="absolute right-0 top-0 w-24 h-24 bg-amber-50 rounded-bl-[4rem] flex items-center justify-center -translate-y-2 translate-x-2 group-hover:translate-y-0 group-hover:translate-x-0 transition-transform">
+                <i className="fas fa-hand-holding-heart text-amber-600 text-2xl"></i>
+             </div>
+             <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Zakat Component</p>
+             <h2 className="text-4xl font-black text-amber-600 tracking-tighter">Rs {(stats.byCategory[DonationCategory.ZAKAT] || 0).toLocaleString()}</h2>
+          </div>
+        </div>
+
+        {/* Charts and Regional Reporting */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+          <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm">
+            <h3 className="font-black text-slate-800 mb-10 uppercase text-xs tracking-[0.2em] flex items-center gap-4">
+              <span className="w-1.5 h-6 bg-emerald-600 rounded-full"></span>
+              Category Distribution
+            </h3>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} />
+                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} />
+                  <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}} />
+                  <Bar dataKey="value" radius={[12, 12, 0, 0]} barSize={55}>
+                    {chartData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col">
+            <h3 className="font-black text-slate-800 mb-10 uppercase text-xs tracking-[0.2em] flex items-center gap-4">
+              <span className="w-1.5 h-6 bg-blue-600 rounded-full"></span>
+              Regional Breakdown (علاقائی تفصیلات)
+            </h3>
+            <div className="flex-1 flex flex-col md:flex-row items-center gap-12">
+              <div className="h-56 w-56 shrink-0 relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={regionData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={65} outerRadius={85} paddingAngle={10}>
+                      {regionData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />)}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Regions</span>
+                  <span className="text-xl font-black text-slate-900">{regionData.length}</span>
+                </div>
+              </div>
+              <div className="flex-1 w-full space-y-4">
+                {regionData.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic text-center">No regional data available.</p>
+                ) : (
+                  regionData.map((item, i) => (
+                    <div key={item.name} className="flex justify-between items-center p-4 rounded-3xl bg-slate-50 border border-slate-100 group hover:bg-white transition-all cursor-default">
+                      <div className="flex items-center gap-4">
+                        <div className="w-4 h-4 rounded-full shadow-lg" style={{backgroundColor: COLORS[i % COLORS.length]}}></div>
+                        <span className="text-xs font-black text-slate-600 uppercase tracking-widest">{item.name}</span>
+                      </div>
+                      <span className="text-base font-black text-emerald-600">Rs {item.value.toLocaleString()}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Global Record Log */}
+        <div className="bg-white rounded-[3.5rem] border border-slate-200 shadow-sm overflow-hidden mb-16">
+          <div className="p-10 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 bg-slate-50/20">
+            <div className="flex items-center gap-5">
+               <div className="w-14 h-14 bg-emerald-600 text-white rounded-[1.2rem] flex items-center justify-center shadow-2xl shadow-emerald-200">
+                 <i className="fas fa-list-check text-xl"></i>
+               </div>
+               <div>
+                  <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm urdu-text leading-none">ڈونیشن ریکارڈ لاگ</h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Immutable Transaction History</p>
+               </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] bg-slate-50/50 border-b border-slate-100">
+                  <th className="px-10 py-6">ID Code</th>
+                  <th className="px-10 py-6">Donor Information</th>
+                  <th className="px-10 py-6">Purpose</th>
+                  <th className="px-10 py-6">Region</th>
+                  <th className="px-10 py-6">Amount</th>
+                  <th className="px-10 py-6 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {entries.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-10 py-32 text-center text-slate-400 italic text-sm">
+                       <i className="fas fa-database text-6xl block mb-6 opacity-10"></i>
+                       No active transactions found in the cloud ledger.
+                    </td>
+                  </tr>
+                ) : (
+                  entries.map(entry => (
+                    <tr key={entry.id} className="hover:bg-slate-50/50 transition-all group">
+                      <td className="px-10 py-6">
+                        <span className="font-mono font-black text-emerald-600 text-[11px] tracking-tighter bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">{entry.receiptNumber}</span>
+                      </td>
+                      <td className="px-10 py-6">
+                         <div className="font-black text-slate-800 text-base">{entry.donorName}</div>
+                         <div className="text-[10px] text-slate-400 font-bold uppercase mt-1 flex items-center gap-2">
+                           <i className="fas fa-calendar-check text-[8px]"></i>
+                           {new Date(entry.timestamp).toLocaleString([], {day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute:'2-digit'})}
+                         </div>
+                      </td>
+                      <td className="px-10 py-6">
+                        <span className="bg-slate-100 text-slate-500 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border border-slate-200">{entry.category}</span>
+                      </td>
+                      <td className="px-10 py-6">
+                        <div className="text-[11px] font-black text-slate-400 uppercase tracking-widest border-l-2 border-slate-200 pl-3">{entry.region}</div>
+                      </td>
+                      <td className="px-10 py-6 font-black text-slate-900 text-lg">Rs {entry.amount.toLocaleString()}</td>
+                      <td className="px-10 py-6">
+                        <div className="flex justify-center gap-4">
+                          <button 
+                            onClick={() => setSelectedReceipt(entry)}
+                            className="bg-emerald-600 text-white hover:bg-emerald-700 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-emerald-50 flex items-center gap-3 group-hover:scale-105 active:scale-95"
+                          >
+                            <i className="fas fa-print"></i> Receipt
+                          </button>
+                          <button 
+                            onClick={() => handleEdit(entry)}
+                            className="bg-white text-blue-600 border border-slate-200 hover:border-blue-600 hover:bg-blue-600 hover:text-white w-12 h-12 rounded-2xl transition-all flex items-center justify-center group-hover:scale-105 active:scale-95 shadow-sm"
+                          >
+                            <i className="fas fa-pencil-alt text-sm"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      {/* The Printable Receipt Modal */}
+      {selectedReceipt && (
+        <ReceiptModal 
+          entry={selectedReceipt} 
+          onClose={() => setSelectedReceipt(null)} 
+        />
+      )}
+    </div>
+  );
+};
+
+export default App;
