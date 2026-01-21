@@ -8,7 +8,7 @@ import plotly.express as px
 # --- APP CONFIGURATION ---
 st.set_page_config(page_title="Community Donation Hub", layout="wide", initial_sidebar_state="expanded")
 
-# Custom CSS for Professional Look, Urdu Support and Printing
+# Custom CSS for Professional Look, Urdu Support and FIXED Printing
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap');
@@ -21,22 +21,31 @@ st.markdown("""
     .receipt-card {
         background: #ffffff; padding: 30px; border-radius: 15px;
         border: 2px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-        max-width: 500px; margin: auto;
+        max-width: 450px; margin: auto; color: black !important;
     }
     .metric-card {
         background: white; padding: 20px; border-radius: 10px; border-left: 5px solid #059669;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
-    /* PDF/Print Preview Optimization */
+    /* THE FIX FOR PDF PREVIEW: This ensures ONLY the receipt is visible when print is triggered */
     @media print {
-        body * { visibility: hidden; }
-        .receipt-card, .receipt-card * { visibility: visible; }
-        .receipt-card {
-            position: absolute; left: 0; top: 0; width: 100%;
-            border: 1px solid #000; box-shadow: none;
+        header, footer, .sidebar, .stApp [data-testid="stHeader"], .stApp [data-testid="stSidebar"], .stButton, .stExpanderDetails div:not(.printable-receipt) {
+            display: none !important;
         }
-        .no-print { display: none !important; }
+        .printable-receipt {
+            display: block !important;
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: auto;
+            margin: 0;
+            padding: 20px;
+            z-index: 9999;
+            background: white;
+        }
+        .main .block-container { padding: 0 !important; }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -83,7 +92,7 @@ with st.sidebar:
 # --- MAIN DASHBOARD ---
 st.markdown('<h1 class="urdu-text" style="color:#065f46;">کمیونٹی ڈونیشن ڈیش بورڈ</h1>', unsafe_allow_html=True)
 
-# Metrics Row (Pool word removed)
+# Metrics Row
 m1, m2, m3, m4 = st.columns(4)
 with m1:
     st.markdown(f'<div class="metric-card"><h4>Total Collection</h4><h3>Rs. {st.session_state.data["amount"].sum():,}</h3></div>', unsafe_allow_html=True)
@@ -106,26 +115,32 @@ if not st.session_state.data.empty:
         with st.expander(f"📄 {row['receipt_no']} - {row['donor_name']} (Rs. {row['amount']})"):
             col_rec, col_opt = st.columns([2, 1])
             
-            with col_rec:
-                st.markdown(f"""
-                <div class="receipt-card">
-                    <h3 style="color:#059669; text-align:center; margin-bottom:0;">COMMUNITY DONATION</h3>
-                    <p style="text-align:center; font-size:12px; color:gray;">OFFICIAL RECEIPT</p>
-                    <hr>
-                    <table style="width:100%; border:none;">
-                        <tr><td><b>Receipt No:</b></td><td style="text-align:right;">{row['receipt_no']}</td></tr>
-                        <tr><td><b>Donor Name:</b></td><td style="text-align:right;">{row['donor_name']}</td></tr>
-                        <tr><td><b>Amount:</b></td><td style="text-align:right; font-size:20px; color:#059669;"><b>Rs. {row['amount']:,}</b></td></tr>
-                        <tr><td><b>Category:</b></td><td style="text-align:right;">{row['category']}</td></tr>
-                        <tr><td><b>Region:</b></td><td style="text-align:right;">{row['region']}</td></tr>
-                        <tr><td><b>Date:</b></td><td style="text-align:right;">{row['timestamp']}</td></tr>
-                    </table>
-                    <hr>
-                    <p style="text-align:center; font-size:12px; color:gray;">Thank you for your donation!</p>
+            # This HTML block is used for both Display and Printing
+            receipt_content = f"""
+                <div class="printable-receipt">
+                    <div class="receipt-card">
+                        <h3 style="color:#059669; text-align:center; margin-bottom:0;">COMMUNITY DONATION</h3>
+                        <p style="text-align:center; font-size:12px; color:gray;">OFFICIAL RECEIPT</p>
+                        <hr>
+                        <table style="width:100%; border:none; color: black;">
+                            <tr><td><b>Receipt No:</b></td><td style="text-align:right;">{row['receipt_no']}</td></tr>
+                            <tr><td><b>Donor Name:</b></td><td style="text-align:right;">{row['donor_name']}</td></tr>
+                            <tr><td><b>Amount:</b></td><td style="text-align:right; font-size:20px; color:#059669;"><b>Rs. {row['amount']:,}</b></td></tr>
+                            <tr><td><b>Category:</b></td><td style="text-align:right;">{row['category']}</td></tr>
+                            <tr><td><b>Region:</b></td><td style="text-align:right;">{row['region']}</td></tr>
+                            <tr><td><b>Date:</b></td><td style="text-align:right;">{row['timestamp']}</td></tr>
+                        </table>
+                        <hr>
+                        <p style="text-align:center; font-size:12px; color:gray;">Thank you for your donation!</p>
+                    </div>
                 </div>
-                """, unsafe_allow_html=True)
+            """
+            
+            with col_rec:
+                st.markdown(receipt_content, unsafe_allow_html=True)
             
             with col_opt:
+                # The button now calls the fixed print function
                 if st.button(f"Print / Save PDF", key=f"btn-{row['id']}"):
                     st.markdown("<script>window.print();</script>", unsafe_allow_html=True)
                 
