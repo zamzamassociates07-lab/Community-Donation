@@ -1,4 +1,3 @@
-import streamlit as st
 import pandas as pd
 import datetime
 import uuid
@@ -22,6 +21,11 @@ st.markdown("""
     }
     .metric-card {
         background: white; padding: 20px; border-radius: 10px; border-left: 5px solid #059669;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    @media print {
+        .no-print { display: none !important; }
+        .receipt-card { border: none; box-shadow: none; }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -54,7 +58,7 @@ with st.sidebar:
     with st.form("donation_form", clear_on_submit=True):
         donor_name = st.text_input("Donor Name (نام)")
         amount = st.number_input("Amount (رقم)", min_value=0, step=500)
-        category = st.selectbox("Category (مقصد)", ["Zakat", "Fitra", "Atiyah", "Monthly Chanda", "General"])
+        category = st.selectbox("Category (مقصد)", ["Zakat", "Fitra", "Monthly Chanda", "Atiyah", "General"])
         region = st.selectbox("Region (علاقہ)", ["5 NO", "J-1", "J-AREA", "4 NO", "Other"])
         
         submitted = st.form_submit_button("Save Data (محفوظ کریں)")
@@ -76,14 +80,19 @@ with st.sidebar:
 # --- MAIN DASHBOARD ---
 st.markdown('<h1 class="urdu-text" style="color:#065f46;">کمیونٹی ڈونیشن ڈیش بورڈ</h1>', unsafe_allow_html=True)
 
-# Metrics
-m1, m2, m3 = st.columns(3)
+# Updated Metrics Row
+m1, m2, m3, m4 = st.columns(4)
 with m1:
-    st.markdown(f'<div class="metric-card"><h3>Total Collection</h3><h2>Rs. {st.session_state.data["amount"].sum():,}</h2></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><h4>Total Collection</h4><h3>Rs. {st.session_state.data["amount"].sum():,}</h3></div>', unsafe_allow_html=True)
 with m2:
-    st.markdown(f'<div class="metric-card"><h3>Total Donors</h3><h2>{len(st.session_state.data)}</h2></div>', unsafe_allow_html=True)
+    zakat = st.session_state.data[st.session_state.data["category"]=="Zakat"]["amount"].sum()
+    st.markdown(f'<div class="metric-card"><h4>Zakat Pool</h4><h3>Rs. {zakat:,}</h3></div>', unsafe_allow_html=True)
 with m3:
-    st.markdown(f'<div class="metric-card"><h3>Zakat Pool</h3><h2>Rs. {st.session_state.data[st.session_state.data["category"]=="Zakat"]["amount"].sum():,}</h2></div>', unsafe_allow_html=True)
+    monthly = st.session_state.data[st.session_state.data["category"]=="Monthly Chanda"]["amount"].sum()
+    st.markdown(f'<div class="metric-card"><h4>Monthly Pool</h4><h3>Rs. {monthly:,}</h3></div>', unsafe_allow_html=True)
+with m4:
+    fitra = st.session_state.data[st.session_state.data["category"]=="Fitra"]["amount"].sum()
+    st.markdown(f'<div class="metric-card"><h4>Fitra Pool</h4><h3>Rs. {fitra:,}</h3></div>', unsafe_allow_html=True)
 
 # Charts
 st.markdown("### Visual Analytics")
@@ -104,17 +113,28 @@ if not st.session_state.data.empty:
     for _, row in st.session_state.data.iloc[::-1].iterrows():
         with st.expander(f"📄 {row['receipt_no']} - {row['donor_name']} (Rs. {row['amount']})"):
             col_left, col_right = st.columns([2, 1])
-            with col_left:
-                st.markdown(f"""
-                <div class="receipt-card">
+            
+            receipt_html = f"""
+                <div class="receipt-card" id="receipt-{row['id']}">
                     <h4 style="color:#059669; text-align:center;">OFFICIAL RECEIPT</h4>
                     <hr>
+                    <p><b>Receipt No:</b> {row['receipt_no']}</p>
                     <p><b>Donor:</b> {row['donor_name']}</p>
                     <p><b>Amount:</b> Rs. {row['amount']:,}</p>
                     <p><b>Category:</b> {row['category']} | <b>Region:</b> {row['region']}</p>
                     <p style="font-size:10px; color:gray;">Date: {row['timestamp']}</p>
                 </div>
-                """, unsafe_allow_html=True)
+            """
+            
+            with col_left:
+                st.markdown(receipt_html, unsafe_allow_html=True)
+            
             with col_right:
+                # Download/Print Option
+                st.markdown('<p class="urdu-text">آپشنز</p>', unsafe_allow_html=True)
+                if st.button(f"Download PDF / Print", key=f"print-{row['id']}"):
+                    st.info("براہ کرم کھلنے والی ونڈو میں 'Save as PDF' منتخب کریں۔")
+                    st.markdown(f"<script>window.print();</script>", unsafe_allow_html=True)
+                
                 whatsapp_msg = f"Thank you {row['donor_name']}! Receipt: {row['receipt_no']} | Amount: Rs.{row['amount']} received for {row['category']}."
-                st.markdown(f'<a href="https://wa.me/?text={whatsapp_msg}" target="_blank">Share on WhatsApp</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/?text={whatsapp_msg}" target="_blank" style="text-decoration:none;"><div style="background:#25D366; color:white; padding:10px; border-radius:8px; text-align:center; margin-top:10px;">Share on WhatsApp</div></a>', unsafe_allow_html=True)
