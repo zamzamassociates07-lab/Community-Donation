@@ -3,7 +3,7 @@ import pandas as pd
 import google.generativeai as genai  # AI Studio کی لائبریری
 
 MY_API_KEY = "AIzaSyBbSokKGsjbacPFVRTo21Lqyha69sbbqRc"
-genai.configure(AIzaSyBbSokKGsjbacPFVRTo21Lqyha69sbbqRcY)
+genai.configure("AIzaSyBbSokKGsjbacPFVRTo21Lqyha69sbbqRcY")
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 st.set_page_config(page_title="Bradri Donation", layout="wide")
