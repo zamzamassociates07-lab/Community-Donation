@@ -16,6 +16,7 @@ st.markdown("""
     .main { background-color: #f8fafc; }
     .urdu-text { font-family: 'Noto Sans Arabic', sans-serif; direction: rtl; text-align: right; }
     .stButton>button { border-radius: 8px; font-weight: bold; background-color: #059669; color: white; }
+    .refresh-btn>button { background-color: #64748b !important; } /* Gray color for refresh */
     
     /* Receipt Design */
     .receipt-card {
@@ -28,7 +29,6 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
-    /* THE FIX FOR PDF PREVIEW: This ensures ONLY the receipt is visible when print is triggered */
     @media print {
         header, footer, .sidebar, .stApp [data-testid="stHeader"], .stApp [data-testid="stSidebar"], .stButton, .stExpanderDetails div:not(.printable-receipt) {
             display: none !important;
@@ -36,16 +36,9 @@ st.markdown("""
         .printable-receipt {
             display: block !important;
             position: fixed;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: auto;
-            margin: 0;
-            padding: 20px;
-            z-index: 9999;
-            background: white;
+            left: 0; top: 0; width: 100%; height: auto;
+            margin: 0; padding: 20px; z-index: 9999; background: white;
         }
-        .main .block-container { padding: 0 !important; }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -73,7 +66,6 @@ with st.sidebar:
         amount = st.number_input("Amount (رقم)", min_value=0, step=500)
         category = st.selectbox("Category (مقصد)", ["Zakat", "Fitra", "Monthly Chanda", "Atiyah", "General"])
         region = st.selectbox("Region (علاقہ)", ["5 NO", "J-1", "J-AREA", "4 NO", "Other"])
-        
         submitted = st.form_submit_button("Save Data (محفوظ کریں)")
         
         if submitted:
@@ -88,9 +80,20 @@ with st.sidebar:
                 st.session_state.data = pd.concat([st.session_state.data, pd.DataFrame([new_entry])], ignore_index=True)
                 save_data(st.session_state.data)
                 st.balloons()
+    
+    # Refresh Button in Sidebar
+    st.markdown("---")
+    if st.button("🔄 Refresh App / ریفریش کریں"):
+        st.rerun()
 
 # --- MAIN DASHBOARD ---
-st.markdown('<h1 class="urdu-text" style="color:#065f46;">کمیونٹی ڈونیشن ڈیش بورڈ</h1>', unsafe_allow_html=True)
+head_col1, head_col2 = st.columns([5, 1])
+with head_col1:
+    st.markdown('<h1 class="urdu-text" style="color:#065f46; margin:0;">کمیونٹی ڈونیشن ڈیش بورڈ</h1>', unsafe_allow_html=True)
+with head_col2:
+    # Refresh icon button on top right
+    if st.button("🔄", help="Click to refresh data"):
+        st.rerun()
 
 # Metrics Row
 m1, m2, m3, m4 = st.columns(4)
@@ -115,7 +118,6 @@ if not st.session_state.data.empty:
         with st.expander(f"📄 {row['receipt_no']} - {row['donor_name']} (Rs. {row['amount']})"):
             col_rec, col_opt = st.columns([2, 1])
             
-            # This HTML block is used for both Display and Printing
             receipt_content = f"""
                 <div class="printable-receipt">
                     <div class="receipt-card">
@@ -140,7 +142,6 @@ if not st.session_state.data.empty:
                 st.markdown(receipt_content, unsafe_allow_html=True)
             
             with col_opt:
-                # The button now calls the fixed print function
                 if st.button(f"Print / Save PDF", key=f"btn-{row['id']}"):
                     st.markdown("<script>window.print();</script>", unsafe_allow_html=True)
                 
